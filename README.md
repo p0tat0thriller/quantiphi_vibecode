@@ -1,68 +1,85 @@
 # Ledger — Subscription & Renewal Dashboard
 
-A personal finance dashboard for tracking recurring SaaS and streaming subscriptions: monthly burn rate, upcoming renewals, and active/paused state — all in the browser, no backend required.
+Ledger is a fully client-side, zero-dependency personal finance dashboard designed to track recurring SaaS and streaming subscriptions. It provides a real-time view of your monthly burn rate, flags upcoming renewals, and allows you to simulate savings by "pausing" active services—all entirely within your browser.
 
-## Features
+---
 
-- **Entry form** — add a service name, cost, billing cycle (monthly/yearly), and next renewal date via a native calendar date-picker.
-- **Burn gauge** — a live fuel-gauge visualization of your total monthly burn rate against a configurable ceiling, normalizing yearly plans down to a monthly rate.
-- **Renewals alert card** — counts subscriptions renewing within 7 days and lists them by name.
-- **Manifest table** — every subscription in one sortable-by-urgency table. Rows renewing within 7 days get an amber "Renewing soon" badge and a left-edge highlight.
-- **Active / Paused toggle** — pausing a subscription instantly greys out its row and removes its cost from the burn rate metric (a live "what if I cancelled this" simulation), without deleting the record. A separate readout shows total monthly savings from paused items.
-- **Local persistence** — subscriptions and your burn ceiling are saved to `localStorage`, so your data survives a page refresh.
-- **Auto-renewal rollover** — on load, any active subscription whose renewal date has passed is automatically advanced to its next future billing date (one cycle at a time, so it also catches up correctly if you haven't opened the app in a while). Rolled-forward items get an "Auto-renewed" tag and a summary banner above the table. Paused subscriptions are left alone, since nothing is being billed.
-- **Renewal history log** — a collapsible "Renewal history" panel below the manifest permanently records every auto-rollover: the service name, its old date struck through, its new date, and when the rollover happened. Unlike the session-only "Auto-renewed" tag, this survives page refreshes, so you never have to wonder "did that date just change on me?" — it's logged. The panel auto-expands the first time a rollover happens in a session, and includes a "Clear history" button (only clears the log, never touches your actual subscriptions).
+## What the App Does
 
-## Tech
+As subscriptions pile up, it becomes difficult to track how much you are spending monthly and when those charges will hit your account. Ledger solves this by:
+* Centralizing all subscriptions into a single sorted manifest.
+* Normalizing both monthly and yearly costs into a single "Monthly Burn Rate."
+* Alerting you when a charge is going to hit within the next 7 days.
+* Automatically rolling forward past-due subscriptions to their next billing cycle so your data is never stale.
+* Keeping a permanent history log of every auto-renewal.
 
-Plain HTML/CSS/JS — no build step, no dependencies, no framework. Fonts are pulled from Google Fonts (IBM Plex Mono + Inter); everything else is self-contained.
+---
 
-## Running it locally
+## Initial Building Stage & Architecture
 
-Just open `index.html` in a browser. For a nicer local dev loop (so relative paths and fonts behave exactly like production), serve it with any static file server, e.g.:
+Ledger was built with simplicity, speed, and privacy in mind. There is no build step, no framework (like React or Vue), and no backend database. 
+
+* **Vanilla Stack:** Constructed entirely using plain HTML, CSS, and JavaScript. 
+* **Styling Engine:** Uses modern CSS variables for a cohesive dark theme (incorporating rust, gold, and teal accents) and BEM-inspired class naming for component isolation.
+* **SVG Visualizations:** The burn gauge is built using raw inline SVG paths, manipulated via JavaScript to act as a reactive data visualization.
+* **Local Persistence:** Data is strictly stored in the browser's `localStorage` (`ledger.subscriptions.v1`, `ledger.ceiling.v1`, and `ledger.renewalHistory.v1`). Your financial data never leaves your device and effortlessly survives page refreshes.
+
+---
+
+## Core Functionalities
+
+### The Burn Gauge & Metrics
+A live fuel-gauge visualization tracks your total monthly spend against a user-configurable "Ceiling." The gauge dynamically changes color from teal (safe) to gold (nearing limit) to rust (over budget).
+
+### Renewals Alert Card
+A dedicated module constantly scans your manifest for urgency, aggregating a count and a comma-separated list of any services renewing within 7 days.
+
+### Subscription Manifest
+The heart of the app is a dynamic table that sorts your subscriptions by upcoming renewal dates. Rows feature status badges, left-edge color highlights for imminent renewals, and a breakdown of their exact monthly equivalent cost.
+
+### Active / Paused Simulation
+Toggling a subscription's "Active" switch instantly greys out its row and removes its cost from the burn rate metric. This acts as a live "what if I canceled this?" simulator, and a separate metric card calculates your total monthly savings from paused items.
+
+### Automated Renewal Rollover
+If you don't open the app for a while, your dates don't get stuck in the past. On page load, the app automatically advances any active, past-due subscription to its next valid future billing date. 
+
+### Audit Trail (History Log)
+Because auto-changing dates can be confusing, Ledger maintains a persistent "Renewal History" panel. Every time a past-due subscription is rolled forward, it logs the service name, strikes through the old date, displays the new date, and timestamps the automated action.
+
+---
+
+## Under the Hood: Calculations & Logic
+
+The app relies on three core calculation engines in `app.js` to keep the dashboard accurate.
+
+### 1. Cost Uniformity Engine
+To calculate the true monthly burn, all inputs must speak the same language. 
+* Monthly subscriptions pass their raw cost directly to the total.
+* Yearly subscriptions take the inputted cost and divide it by 12. 
+* Paused subscriptions are excluded from the array before the final `reduce()` summation runs.
+
+### 2. Date Intersect & Urgency Calculator
+The app parses user `YYYY-MM-DD` inputs as local midnight dates and calculates the absolute difference in milliseconds against "today." 
+* This millisecond value is divided by `86,400,000` (ms in a day) to yield whole days remaining. 
+* If a subscription is active and the remaining days are between `0` and `7`, it triggers the "Renewing Soon" UI states.
+
+### 3. SVG Gauge Math
+The dashboard gauge is a 283-pixel SVG arc (roughly π × radius of 90). 
+* The app calculates your spend percentage: `monthlyBurn / ceiling`.
+* It clamps this value between 0 and 1.
+* It multiplies this percentage by 283 to determine the `stroke-dashoffset`, physically revealing the colored arc. 
+* The needle's rotation is calculated by mapping the 0–1 percentage to a -90° to +90° rotation transform.
+
+### 4. Rollover Engine Math
+When catching up a lapsed date, the app uses a `while` loop to repeatedly add 1 month (or 12 months) until the target date surpasses today. It uses native `Date` object manipulation to clamp days to the end of the month (e.g., rolling Jan 31st forward results in Feb 28th/29th, preventing accidental date skipping).
+
+---
+
+## Running It Locally
+
+Just open `index.html` in a web browser. For a slightly better local development loop (to ensure relative paths and fonts behave exactly like production), serve it with a static file server:
 
 ```bash
 npx serve .
 # or
 python3 -m http.server 8080
-```
-
-Then visit the printed URL.
-
-## Deploying with GitHub Pages
-
-1. Push this repo to GitHub (see below).
-2. In the repo, go to **Settings → Pages**.
-3. Under **Build and deployment**, set **Source** to `Deploy from a branch`, branch `main`, folder `/ (root)`.
-4. Save — your dashboard will be live at `https://<your-username>.github.io/<repo-name>/` within a minute or two.
-
-## Pushing this project to your existing repo
-
-From inside this project folder:
-
-```bash
-git init
-git add .
-git commit -m "Initial commit: subscription tracker dashboard"
-git branch -M main
-git remote add origin https://github.com/<your-username>/<your-repo>.git
-git push -u origin main
-```
-
-(Skip `git remote add origin` if it's already configured, and use `git push` instead.)
-
-## How the core logic works
-
-- **Cost Uniformity Engine** (`toMonthlyRate` in `app.js`): yearly costs are divided by 12; monthly costs pass through unchanged. This is what the burn-rate metric is built from.
-- **Date Intersect Calculator** (`daysUntil` / `isRenewingSoon` in `app.js`): parses the `YYYY-MM-DD` renewal string as a local calendar date, diffs it against "today" in whole days, and flags anything active with `0–7` days remaining as "Renewing soon".
-- **Pause simulation**: pausing sets `active: false` on that record only — it stays in the array (and in `localStorage`), the table row greys out via a CSS class, and every metric recomputation filters on `active` before summing, so the burn rate updates in real time.
-- **Renewal Rollover Engine** (`rollForwardLapsedRenewals` in `app.js`): runs once on page load. For each active subscription whose renewal date is in the past, it repeatedly adds one billing cycle (+1 month or +12 months) until the date is today or later — so it correctly catches up a subscription even if the app hasn't been opened for several cycles. Paused subscriptions are skipped, since nothing is being billed while paused. Every rollover appends an entry — `{ subId, name, oldDate, newDate, renewedAt }` — to a separate `localStorage` key (`ledger.renewalHistory.v1`) that persists independently of the subscriptions themselves, powering the Renewal History panel.
-
-## Known edge case
-
-Month-end dates can drift slightly across February: e.g. a monthly subscription renewing on the 31st gets clamped to Feb 28 (or 29), and every month after that clamps to the 28th until a month with 31 days resets it. This is standard calendar-math behavior (the same thing your bank or a real billing system does), not a bug, but worth knowing if you're tracking a subscription that bills on the 29th–31st.
-
-## Notes / possible next steps
-
-- Currency is fixed to USD for the demo; swapping the `Intl.NumberFormat` locale/currency in `app.js` would generalize it.
-- Data is local to one browser — there's no account system or server sync.
