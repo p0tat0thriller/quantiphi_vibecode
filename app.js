@@ -3,6 +3,7 @@
 
   const STORAGE_KEY = "ledger.subscriptions.v1";
   const CEILING_KEY = "ledger.ceiling.v1";
+  const HISTORY_KEY = "ledger.renewalHistory.v1";
   const SOON_THRESHOLD_DAYS = 7;
 
   /** ---------- State ---------- **/
@@ -12,6 +13,10 @@
   /** @type {Subscription[]} */
   let subscriptions = loadSubscriptions();
   let ceiling = loadCeiling();
+
+  /** @typedef {{id:string,subId:string,name:string,oldDate:string,newDate:string,renewedAt:string}} HistoryEntry */
+  /** @type {HistoryEntry[]} */
+  let renewalHistory = loadHistory();
 
   /** IDs auto-renewed this session, purely for the transient UI tag/banner (not persisted). */
   let justRenewedIds = new Set();
@@ -42,6 +47,24 @@
 
   function saveCeiling() {
     localStorage.setItem(CEILING_KEY, String(ceiling));
+  }
+
+  function loadHistory() {
+    try {
+      const raw = localStorage.getItem(HISTORY_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch (err) {
+      console.error("Could not read renewal history, starting fresh.", err);
+      return [];
+    }
+  }
+
+  function saveHistory() {
+    try {
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(renewalHistory));
+    } catch (err) {
+      console.error("Could not save renewal history.", err);
+    }
   }
 
   /** ---------- Cost Uniformity Engine ---------- **/
@@ -100,7 +123,8 @@
    * Advances any active subscription whose renewal date has passed to its
    * next future billing date, one cycle at a time (handles being offline
    * for multiple cycles). Paused subscriptions are left untouched, since
-   * nothing is being billed while paused.
+   * nothing is being billed while paused. Every rollover is also appended
+   * to the persistent renewal history log.
    * Returns the list of subscriptions that were rolled forward.
    */
   function rollForwardLapsedRenewals(today) {
@@ -109,6 +133,7 @@
     for (const sub of subscriptions) {
       if (!sub.active) continue;
 
+      const originalDate = sub.renewal;
       let current = parseCalendarDate(sub.renewal);
       let advanced = false;
 
@@ -120,6 +145,15 @@
       if (advanced) {
         sub.renewal = toDateString(current);
         renewed.push(sub);
+
+        renewalHistory.push({
+          id: (crypto.randomUUID && crypto.randomUUID()) || `hist_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+          subId: sub.id,
+          name: sub.name,
+          oldDate: originalDate,
+          newDate: sub.renewal,
+          renewedAt: today.toISOString(),
+        });
       }
     }
 
@@ -178,6 +212,13 @@
     renewalBanner: document.getElementById("renewal-banner"),
     renewalBannerText: document.getElementById("renewal-banner-text"),
     renewalBannerDismiss: document.getElementById("renewal-banner-dismiss"),
+    historySection: document.getElementById("history-section"),
+    historyToggle: document.getElementById("history-toggle"),
+    historyBody: document.getElementById("history-body"),
+    historyList: document.getElementById("history-list"),
+    historyEmpty: document.getElementById("history-empty"),
+    historyCount: document.getElementById("history-count"),
+    historyClear: document.getElementById("history-clear"),
   };
 
   const GAUGE_ARC_LENGTH = 283; // ~pi * r(90), matches stroke-dasharray in CSS/SVG
@@ -192,6 +233,7 @@
     renderGauge(monthlyBurn);
     renderAlertCard(soon, pausedSavings);
     renderTable(today);
+    renderHistory();
   }
 
   function renderMasthead(today) {
@@ -245,6 +287,52 @@
     els.emptyState.classList.toggle("is-visible", !hasRows);
     els.manifestTable.classList.toggle("is-empty", !hasRows);
     els.rowCount.textContent = `${subscriptions.length} subscription${subscriptions.length === 1 ? "" : "s"}`;
+  }
+
+  function formatRenewedAt(isoString) {
+    return new Date(isoString).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  }
+
+  function renderHistory() {
+    const hasHistory = renewalHistory.length > 0;
+
+    els.historyCount.textContent = String(renewalHistory.length);
+    els.historyEmpty.classList.toggle("is-visible", !hasHistory);
+    els.historyClear.hidden = !hasHistory;
+
+    els.historyList.innerHTML = "";
+
+    const sorted = [...renewalHistory].sort(
+      (a, b) => new Date(b.renewedAt) - new Date(a.renewedAt)
+    );
+
+    for (const entry of sorted) {
+      const row = document.createElement("div");
+      row.className = "history-row";
+
+      const name = document.createElement("span");
+      name.className = "history-row__name";
+      name.textContent = entry.name;
+
+      const dates = document.createElement("span");
+      dates.className = "history-row__dates";
+      dates.innerHTML =
+        `<span class="old-date">${formatDateReadable(entry.oldDate)}</span>` +
+        ` → <span class="new-date">${formatDateReadable(entry.newDate)}</span>`;
+
+      const meta = document.createElement("span");
+      meta.className = "history-row__meta";
+      meta.textContent = `Auto-renewed on ${formatRenewedAt(entry.renewedAt)}`;
+
+      row.appendChild(name);
+      row.appendChild(dates);
+      row.appendChild(meta);
+      els.historyList.appendChild(row);
+    }
   }
 
   function buildRow(sub, today) {
@@ -410,6 +498,27 @@
     });
   }
 
+  function initHistorySection() {
+    els.historyToggle.addEventListener("click", () => {
+      const isOpen = els.historyBody.classList.toggle("is-open");
+      els.historyToggle.setAttribute("aria-expanded", String(isOpen));
+    });
+
+    els.historyClear.addEventListener("click", () => {
+      if (!renewalHistory.length) return;
+      const confirmed = window.confirm("Clear the renewal history log? This only removes the log, not your subscriptions.");
+      if (!confirmed) return;
+      renewalHistory = [];
+      saveHistory();
+      render();
+    });
+  }
+
+  function openHistorySection() {
+    els.historyBody.classList.add("is-open");
+    els.historyToggle.setAttribute("aria-expanded", "true");
+  }
+
   function initCeilingInput() {
     els.ceilingInput.value = ceiling;
     els.ceilingInput.addEventListener("input", () => {
@@ -425,12 +534,15 @@
     initTicket();
     initCeilingInput();
     initRenewalBanner();
+    initHistorySection();
 
     const renewedSubs = rollForwardLapsedRenewals(new Date());
     if (renewedSubs.length) {
       justRenewedIds = new Set(renewedSubs.map((s) => s.id));
       saveSubscriptions();
+      saveHistory();
       showRenewalBanner(renewedSubs);
+      openHistorySection();
     }
 
     render();

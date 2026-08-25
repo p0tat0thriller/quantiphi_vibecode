@@ -133,6 +133,20 @@
     </div>
   </section>
 
+  <section class="history" id="history-section">
+    <button class="history__toggle" id="history-toggle" aria-expanded="false" aria-controls="history-body">
+      <span class="history__toggle-icon">↻</span>
+      <span>Renewal history</span>
+      <span class="history__count" id="history-count">0</span>
+    </button>
+
+    <div class="history__body" id="history-body">
+      <div class="history__list" id="history-list"></div>
+      <p class="history__empty" id="history-empty">No renewals recorded yet — this fills in automatically whenever an overdue subscription gets rolled forward.</p>
+      <button type="button" class="history__clear" id="history-clear">Clear history</button>
+    </div>
+  </section>
+
   <footer class="footer">
     <span>Ledger stores data locally in this browser only.</span>
   </footer>
