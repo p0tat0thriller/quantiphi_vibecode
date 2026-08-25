@@ -10,6 +10,7 @@ A personal finance dashboard for tracking recurring SaaS and streaming subscript
 - **Manifest table** — every subscription in one sortable-by-urgency table. Rows renewing within 7 days get an amber "Renewing soon" badge and a left-edge highlight.
 - **Active / Paused toggle** — pausing a subscription instantly greys out its row and removes its cost from the burn rate metric (a live "what if I cancelled this" simulation), without deleting the record. A separate readout shows total monthly savings from paused items.
 - **Local persistence** — subscriptions and your burn ceiling are saved to `localStorage`, so your data survives a page refresh.
+- **Auto-renewal rollover** — on load, any active subscription whose renewal date has passed is automatically advanced to its next future billing date (one cycle at a time, so it also catches up correctly if you haven't opened the app in a while). Rolled-forward items get an "Auto-renewed" tag and a summary banner above the table. Paused subscriptions are left alone, since nothing is being billed.
 
 ## Tech
 
@@ -54,9 +55,13 @@ git push -u origin main
 - **Cost Uniformity Engine** (`toMonthlyRate` in `app.js`): yearly costs are divided by 12; monthly costs pass through unchanged. This is what the burn-rate metric is built from.
 - **Date Intersect Calculator** (`daysUntil` / `isRenewingSoon` in `app.js`): parses the `YYYY-MM-DD` renewal string as a local calendar date, diffs it against "today" in whole days, and flags anything active with `0–7` days remaining as "Renewing soon".
 - **Pause simulation**: pausing sets `active: false` on that record only — it stays in the array (and in `localStorage`), the table row greys out via a CSS class, and every metric recomputation filters on `active` before summing, so the burn rate updates in real time.
+- **Renewal Rollover Engine** (`rollForwardLapsedRenewals` in `app.js`): runs once on page load. For each active subscription whose renewal date is in the past, it repeatedly adds one billing cycle (+1 month or +12 months) until the date is today or later — so it correctly catches up a subscription even if the app hasn't been opened for several cycles. Paused subscriptions are skipped, since nothing is being billed while paused.
+
+## Known edge case
+
+Month-end dates can drift slightly across February: e.g. a monthly subscription renewing on the 31st gets clamped to Feb 28 (or 29), and every month after that clamps to the 28th until a month with 31 days resets it. This is standard calendar-math behavior (the same thing your bank or a real billing system does), not a bug, but worth knowing if you're tracking a subscription that bills on the 29th–31st.
 
 ## Notes / possible next steps
 
-- Renewal dates don't currently auto-advance to the next cycle once they pass — the app just shows "Renewing today" and negative-day items sort to the top. Rolling the date forward automatically on renewal would be a natural next feature.
 - Currency is fixed to USD for the demo; swapping the `Intl.NumberFormat` locale/currency in `app.js` would generalize it.
 - Data is local to one browser — there's no account system or server sync.

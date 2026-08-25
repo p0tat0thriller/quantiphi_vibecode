@@ -399,6 +399,50 @@ body {
   font-family: var(--font-display);
 }
 
+.renewal-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: rgba(79, 161, 132, 0.1);
+  border: 1px solid var(--teal-dim);
+  color: var(--teal);
+  font-size: 13px;
+  padding: 10px 16px;
+  border-radius: var(--radius);
+  margin-bottom: 12px;
+}
+
+.renewal-banner[hidden] {
+  display: none;
+}
+
+.renewal-banner button {
+  background: transparent;
+  border: none;
+  color: var(--teal);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 2px 4px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.renewed-tag {
+  display: inline-block;
+  margin-left: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--teal);
+  background: rgba(79, 161, 132, 0.14);
+  border: 1px solid var(--teal-dim);
+  border-radius: 999px;
+  padding: 2px 7px;
+  vertical-align: middle;
+}
+
 .table-wrap {
   background: var(--panel);
   border: 1px solid var(--border);

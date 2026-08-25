@@ -13,6 +13,9 @@
   let subscriptions = loadSubscriptions();
   let ceiling = loadCeiling();
 
+  /** IDs auto-renewed this session, purely for the transient UI tag/banner (not persisted). */
+  let justRenewedIds = new Set();
+
   function loadSubscriptions() {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
@@ -61,6 +64,23 @@
     return new Date(date.getFullYear(), date.getMonth(), date.getDate());
   }
 
+  /** Adds N months to a date, clamping the day so e.g. Jan 31 + 1mo -> Feb 28/29. */
+  function addMonths(date, months) {
+    const originalDay = date.getDate();
+    const d = new Date(date.getFullYear(), date.getMonth(), 1);
+    d.setMonth(d.getMonth() + months);
+    const daysInTargetMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    d.setDate(Math.min(originalDay, daysInTargetMonth));
+    return d;
+  }
+
+  function toDateString(date) {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, "0");
+    const d = String(date.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }
+
   /** Whole days remaining until target date, relative to a fixed "today". */
   function daysUntil(dateStr, today) {
     const target = parseCalendarDate(dateStr);
@@ -72,6 +92,38 @@
     if (!sub.active) return false;
     const remaining = daysUntil(sub.renewal, today);
     return remaining >= 0 && remaining <= SOON_THRESHOLD_DAYS;
+  }
+
+  /** ---------- Renewal Rollover Engine ---------- **/
+
+  /**
+   * Advances any active subscription whose renewal date has passed to its
+   * next future billing date, one cycle at a time (handles being offline
+   * for multiple cycles). Paused subscriptions are left untouched, since
+   * nothing is being billed while paused.
+   * Returns the list of subscriptions that were rolled forward.
+   */
+  function rollForwardLapsedRenewals(today) {
+    const renewed = [];
+
+    for (const sub of subscriptions) {
+      if (!sub.active) continue;
+
+      let current = parseCalendarDate(sub.renewal);
+      let advanced = false;
+
+      while (startOfDay(current) < startOfDay(today)) {
+        current = sub.cycle === "yearly" ? addMonths(current, 12) : addMonths(current, 1);
+        advanced = true;
+      }
+
+      if (advanced) {
+        sub.renewal = toDateString(current);
+        renewed.push(sub);
+      }
+    }
+
+    return renewed;
   }
 
   /** ---------- Derived metrics ---------- **/
@@ -123,6 +175,9 @@
     rowCount: document.getElementById("row-count"),
     emptyState: document.getElementById("empty-state"),
     manifestTable: document.querySelector(".manifest-table"),
+    renewalBanner: document.getElementById("renewal-banner"),
+    renewalBannerText: document.getElementById("renewal-banner-text"),
+    renewalBannerDismiss: document.getElementById("renewal-banner-dismiss"),
   };
 
   const GAUGE_ARC_LENGTH = 283; // ~pi * r(90), matches stroke-dasharray in CSS/SVG
@@ -223,6 +278,12 @@
     const renewalTd = document.createElement("td");
     renewalTd.className = "cell-mono";
     renewalTd.textContent = formatDateReadable(sub.renewal);
+    if (justRenewedIds.has(sub.id)) {
+      const tag = document.createElement("span");
+      tag.className = "renewed-tag";
+      tag.textContent = "Auto-renewed";
+      renewalTd.appendChild(tag);
+    }
     tr.appendChild(renewalTd);
 
     const statusTd = document.createElement("td");
@@ -332,6 +393,23 @@
     });
   }
 
+  function showRenewalBanner(renewedSubs) {
+    if (!renewedSubs.length) return;
+
+    const names = renewedSubs.map((s) => s.name).join(", ");
+    els.renewalBannerText.textContent =
+      renewedSubs.length === 1
+        ? `${names} passed its renewal date and was rolled forward to its next billing cycle.`
+        : `${renewedSubs.length} subscriptions passed their renewal date and were rolled forward: ${names}.`;
+    els.renewalBanner.hidden = false;
+  }
+
+  function initRenewalBanner() {
+    els.renewalBannerDismiss.addEventListener("click", () => {
+      els.renewalBanner.hidden = true;
+    });
+  }
+
   function initCeilingInput() {
     els.ceilingInput.value = ceiling;
     els.ceilingInput.addEventListener("input", () => {
@@ -346,6 +424,15 @@
     els.entryForm.addEventListener("submit", handleSubmit);
     initTicket();
     initCeilingInput();
+    initRenewalBanner();
+
+    const renewedSubs = rollForwardLapsedRenewals(new Date());
+    if (renewedSubs.length) {
+      justRenewedIds = new Set(renewedSubs.map((s) => s.id));
+      saveSubscriptions();
+      showRenewalBanner(renewedSubs);
+    }
+
     render();
   }
 
